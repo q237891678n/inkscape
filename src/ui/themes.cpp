@@ -42,7 +42,7 @@
 #include <gdk/macos/gdkmacos.h>
 #endif
 
-#ifdef _WIN32
+#if defined ( _WIN32 ) && !GTK_CHECK_VERSION(4, 25, 0)
 #include <windows.h>
 #endif
 
@@ -616,7 +616,8 @@ static double get_dpi_ratio(Gdk::Display *display)
     if (GDK_IS_MACOS_DISPLAY(display ? display->gobj() : nullptr)) {
         dpi = 72.0;
     }
-#elifdef _WIN32
+#elif defined ( _WIN32 ) && !GTK_CHECK_VERSION(4, 25, 0)
+    // GTK versions newer than 4.24 have a fix for DPI scaling that clashes with this one
     // test for the availability of the GetDpiForSystem function
     // Based on the example at
     // https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getprocaddress
