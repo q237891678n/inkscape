@@ -32,6 +32,7 @@ public:
     virtual void set_document(SPDocument* document) = 0;
     virtual void set_independent() = 0;
     virtual void set_color(const Colors::Color& color) = 0;
+
     // request color type/space change
     virtual void set_picker_space(std::shared_ptr<Colors::Space::AnySpace> const &space) = 0;
     // request type of color wheel/plate

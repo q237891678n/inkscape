@@ -46,6 +46,11 @@ public:
 
     void update_color() {
         if (_color_set && !_color_set->isEmpty()) {
+            auto sp = _color_set->getSpaceConstraint();
+            for (auto &[_, color] : *_color_set) {
+                // This color set is bad
+                std::cerr << " - " << (sp ? sp->getName() : "{no-constraint}") << ", " << color.toString() << "\n";
+            }
             auto color = _color_set->getAverage();
             _preview.setRgba32(color.toRGBA());
             if (_plate) { _plate->set_color(color); }

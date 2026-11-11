@@ -165,6 +165,21 @@ GradientEditor::GradientEditor(const char* prefs, Space::Type space, bool show_t
     append(_main_box);
 }
 
+void GradientEditor::set_selected(SPGradient *gradient, SPStop *stop)
+{
+    if (gradient) {
+        auto vector = gradient->getVector();
+        setMode(is<SPLinearGradient>(gradient) ? GradientSelector::MODE_LINEAR : GradientSelector::MODE_RADIAL);
+        setGradient(gradient);
+        setVector(vector ? vector->document : nullptr, vector);
+        selectStop(stop);
+        if (vector) {
+            setUnits(vector->getUnits());
+            setSpread(vector->getSpread());
+        }
+    }
+}
+
 void GradientEditor::set_stop_color(Inkscape::Colors::Color const &color)
 {
     if (_update.pending()) return;

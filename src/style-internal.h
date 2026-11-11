@@ -780,7 +780,7 @@ public:
     }
 
     void setTag(SPObject* tag) { this->tag = tag; }
-    SPObject* getTag() { return tag; }
+    SPObject* getTag() const { return tag; }
 
     void setColor(Inkscape::Colors::Color const &other);
     Inkscape::Colors::Color const &getColor() const;

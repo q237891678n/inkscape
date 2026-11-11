@@ -38,9 +38,12 @@ public:
 
     virtual void set_desktop(SPDesktop* desktop) = 0;
     virtual void set_document(SPDocument* document) = 0;
-    virtual void set_mode(PaintMode mode) = 0;
-    virtual void update_from_paint(const SPIPaint& paint) = 0;
+
+    virtual void clear_paints() = 0;
+    virtual void add_paint(std::string const &id, const SPIPaint *paint, double opacity) = 0;
     virtual void set_fill_rule(FillRule fill_rule) = 0;
+    virtual void show_best_mode() = 0;
+
     /**
      * Shows a placeholder for `PaintSwitch`.
      *
