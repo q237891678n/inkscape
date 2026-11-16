@@ -84,7 +84,9 @@ private:
 
     std::optional<Colors::Color> startcolor;
 
-    gchar const *undokey = "ssrot1";
+    static constexpr gchar const *undokey = "ssrot";
+
+    double _log_timeout = 400; // scroll value logging timeout
 
     int cursor_state = -1;
 };
@@ -105,7 +107,9 @@ private:
     double startvalue;
     bool startvalue_set;
 
-    gchar const *undokey;
+    double _log_timeout = 400; // scroll value logging timeout
+
+    static constexpr gchar const *undokey = "swrot";
 };
 
 /**
