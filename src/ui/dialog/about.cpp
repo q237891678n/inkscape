@@ -206,6 +206,7 @@ void show_about()
     auto label2       = &get_widget<Gtk::Label>   (builder, "debug-info-copied");
     auto copyright    = &get_widget<Gtk::Label>   (builder, "copyright");
     auto authors      = &get_widget<Gtk::TextView>(builder, "credits-authors");
+    auto artists      = &get_widget<Gtk::TextView>(builder, "credits-artists");
     auto translators  = &get_widget<Gtk::TextView>(builder, "credits-translators");
     auto license      = &get_widget<Gtk::Label>   (builder, "license-text");
 
@@ -229,6 +230,11 @@ void show_about()
         str_authors.append(author).append(1, '\n');
     }
     authors->get_buffer()->set_text(str_authors.c_str());
+
+    std::ifstream fn1{Resource::get_filename(Resource::DOCS, "artists.txt")};
+    std::string str1((std::istreambuf_iterator<char>(fn1)),
+                      std::istreambuf_iterator<char>());
+    artists->get_buffer()->set_text(str1.c_str());
 
     auto const [translators_data, capacity2] = get_shuffled_lines("TRANSLATORS", g);
     std::string str_translators;

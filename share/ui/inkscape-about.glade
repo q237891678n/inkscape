@@ -109,6 +109,50 @@
                 <property name="position">2</property>
                 <property name="tab-fill">False</property>
                 <property name="child">
+                  <object class="GtkBox">
+                    <property name="orientation">vertical</property>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="margin-top">3</property>
+                        <property name="label" translatable="yes" context="Artists">&lt;big&gt;&lt;b&gt;Do you want to get involved with Inkscape? &lt;a href="https://inkscape.org/contribute/"&gt;Check this page!&lt;/a&gt;&lt;/b&gt;&lt;/big&gt;</property>
+                        <property name="use-markup">True</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkScrolledWindow">
+                        <property name="vexpand">True</property>
+                        <property name="focusable">True</property>
+                        <property name="child">
+                          <object class="GtkTextView" id="credits-artists">
+                            <property name="focusable">True</property>
+                            <property name="editable">False</property>
+                            <property name="justification">center</property>
+                            <property name="left-margin">10</property>
+                            <property name="right-margin">10</property>
+                            <property name="top-margin">10</property>
+                            <property name="bottom-margin">10</property>
+                            <property name="cursor-visible">False</property>
+                            <property name="accepts-tab">False</property>
+                          </object>
+                        </property>
+                      </object>
+                    </child>
+                  </object>
+                </property>
+                <property name="tab">
+                  <object class="GtkLabel">
+                    <property name="tooltip-text" translatable="yes">List of artists</property>
+                    <property name="hexpand">True</property>
+                    <property name="label" translatable="yes">Artists</property>
+                  </object>
+                </property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkNotebookPage">
+                <property name="position">2</property>
+                <property name="tab-fill">False</property>
+                <property name="child">
                   <object class="GtkBox" id="translators-box">
                     <property name="orientation">vertical</property>
                     <child>
