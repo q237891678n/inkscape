@@ -18,7 +18,7 @@
 #include <gtkmm/sizegroup.h>
 #include <sigc++/scoped_connection.h>
 
-#include "color-notebook.h"
+#include "colors/color-set.h"
 #include "color-slider.h"
 #include "color-preview.h"
 #include "ui/widget/color-slider.h"
@@ -79,6 +79,7 @@ private:
     Gtk::Button _dropper;
     sigc::scoped_connection _specific_changed_connection;
     sigc::scoped_connection _selected_changed_connection;
+    sigc::scoped_connection _selected_cleared_connection;
     ColorWheel* _color_wheel = nullptr;
     sigc::scoped_connection _color_wheel_changed;
 };

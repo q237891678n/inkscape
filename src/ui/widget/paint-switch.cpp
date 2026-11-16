@@ -14,6 +14,7 @@
 
 #include "color-picker-panel.h"
 #include "colors/color-set.h"
+#include "colors/document-cms.h"
 #include "colors/manager.h"
 #include "colors/spaces/base.h"
 #include "style-internal.h"
@@ -97,10 +98,12 @@ class FlatColorEditor : public Gtk::Box {
     const char* _prefs = "/color-editor";
     std::unique_ptr<ColorPickerPanel> _picker;
 public:
-    FlatColorEditor(Space::Type space, std::shared_ptr<Colors::ColorSet> colors) :
-        _picker(ColorPickerPanel::create(space, get_plate_type_preference(_prefs, ColorPickerPanel::Rect), colors)) {
+    FlatColorEditor(Space::Type initial_space, std::shared_ptr<Colors::ColorSet> colors) :
+        _picker(ColorPickerPanel::create(initial_space, get_plate_type_preference(_prefs, ColorPickerPanel::Rect), colors)) {
         append(*_picker);
     }
+    void set_desktop(SPDesktop *desktop) { _picker->set_desktop(desktop); }
+    void set_document(SPDocument *doc) { _picker->set_document(doc); }
     void set_color_picker_plate(ColorPickerPanel::PlateType type) {
         _picker->set_plate_type(type);
         set_plate_type_preference(_prefs, type);
@@ -143,8 +146,8 @@ Space::Type get_color_type() {
     return space ? space->getType() : Space::Type::HSL;
 }
 
-void store_color_type(Space::Type type) {
-    if (auto space = Manager::get().find(type)) {
+void store_color_space(std::shared_ptr<Colors::Space::AnySpace> const &space) {
+    if (space) {
         Preferences::get()->setString("/color-picker/sel-color-type", space->getName());
     }
 }
@@ -158,7 +161,8 @@ public:
     void set_desktop(SPDesktop* desktop) override {
 
         _desktop = desktop;
-
+        _flat_color.set_desktop(desktop);
+        _gradient.set_desktop(desktop);
         _swatch.set_desktop(desktop);
 
         if (desktop) {
@@ -186,6 +190,7 @@ public:
 
     void set_document(SPDocument* document) override {
         _document = document;
+        _flat_color.set_document(document);
         _mesh.set_document(document);
         _swatch.set_document(document);
         _pattern.set_document(document);
@@ -197,15 +202,21 @@ public:
         _mode_group.set_active(reset_toggles);
     }
 
-    // called from the outside to update UI
-    void set_mode(PaintMode mode) override;
+    void clear_paints() override {
+        _color->clear();
+        // TODO: Clear others when they support multiple-styles
+        _selected_modes.clear();
+    }
+    void add_paint(std::string const &id, const SPIPaint *paint, double opacity) override;
+    void show_best_mode() override;
+
     // internal handler for buttons switching paint mode
     void switch_paint_mode(PaintMode mode);
     void set_color(const Colors::Color& color) override;
     sigc::signal<void (const Colors::Color&)> get_flat_color_changed() override;
     sigc::signal<void (PaintMode)> get_signal_mode_changed() override;
-    void update_from_paint(const SPIPaint& paint) override;
     void set_fill_rule(FillRule fill_rule) override;
+
     void _set_mode(PaintMode mode);
 
     sigc::signal<void (SPGradient* gradient, SPGradientType type)> get_gradient_changed() override {
@@ -312,6 +323,7 @@ public:
     sigc::connection _connection_gradient_signal_stop_selected;
     sigc::connection _connection_desktop_gradient_stop_selected;
 
+    std::map<PaintMode, int> _selected_modes;
     std::map<PaintMode, Gtk::Widget*> _pages;
     std::map<PaintMode, Gtk::ToggleButton*> _mode_buttons;
     std::map<ColorPickerPanel::PlateType, Gtk::ToggleButton*> _plate_buttons;
@@ -427,7 +439,7 @@ PaintSwitchImpl::PaintSwitchImpl(bool support_no_paint, bool support_fill_rule, 
     }
 
     _flat_color.get_picker().get_color_space_changed().connect([](auto type) {
-        store_color_type(type);
+        store_color_space(type);
     });
 
     _mesh.signal_changed().connect([this](auto mesh) { fire_mesh_changed(mesh); });
@@ -442,7 +454,7 @@ PaintSwitchImpl::PaintSwitchImpl(bool support_no_paint, bool support_fill_rule, 
         fire_swatch_changed(swatch, EditOperation::Rename, nullptr, {}, label);
     });
     _swatch.get_picker().get_color_space_changed().connect([](auto type) {
-        store_color_type(type);
+        store_color_space(type);
     });
     _fill_rule_btn.signal_clicked().connect([this] {
         if (_update.pending()) return;
@@ -458,7 +470,7 @@ PaintSwitchImpl::PaintSwitchImpl(bool support_no_paint, bool support_fill_rule, 
     _gradient.signal_changed().connect([this](auto gradient) { fire_gradient_changed(gradient, _mode); });
     _gradient.set_margin_top(4);
     _gradient.get_picker().get_color_space_changed().connect([](auto type) {
-        store_color_type(type);
+        store_color_space(type);
     });
 
     auto& separator = get_widget<Gtk::Separator>(_builder, "separator");
@@ -497,7 +509,8 @@ PaintSwitchImpl::PaintSwitchImpl(bool support_no_paint, bool support_fill_rule, 
 }
 
 void PaintSwitchImpl::switch_paint_mode(PaintMode mode) {
-    // fire mode change
+    if (mode == _mode) return;
+
     _signal_mode_changed.emit(mode);
 
     switch (mode) {
@@ -527,7 +540,7 @@ void PaintSwitchImpl::switch_paint_mode(PaintMode mode) {
         break;
     }
 
-    set_mode(mode);
+    _set_mode(mode);
 }
 
 void PaintSwitchImpl::set_color(const Colors::Color& color) {
@@ -540,12 +553,6 @@ sigc::signal<void (const Colors::Color&)> PaintSwitchImpl::get_flat_color_change
 
 sigc::signal<void (PaintMode)> PaintSwitchImpl::get_signal_mode_changed() {
     return _signal_mode_changed;
-}
-
-void PaintSwitchImpl::set_mode(PaintMode mode) {
-    if (mode == _mode) return;
-
-    _set_mode(mode);
 }
 
 void PaintSwitchImpl::_set_mode(PaintMode mode) {
@@ -621,51 +628,78 @@ std::optional<ColorPickerPanel::PlateType> PaintSwitchImpl::get_plate_type(Gtk::
     return {};
 }
 
-void PaintSwitchImpl::update_from_paint(const SPIPaint& paint) {
+void PaintSwitchImpl::add_paint(std::string const &id, const SPIPaint *paint, double opacity)
+{
     auto scoped(_update.block());
 
-    if (auto server = paint.isPaintserver() ? paint.href->getObject() : nullptr) {
+    /*
+     * TODO: The future of the paint switch involves taking account of multiple paints
+     * more and allowing users who browse through the selected styles of the selected
+     * gradients, hatches, etc rather than showing a blank message to the user.
+     *
+     * TODO: Suport opacity properly as it can be applied to any of these formats.
+     */
+    if (!paint) {
+        return; // Don't record
+    } else if (paint->isNone()) {
+        _selected_modes[PaintMode::None]++;
+    } else if (paint->isColor()) {
+        _color->set(id, paint->getColor().withOpacity(opacity));
+        _selected_modes[PaintMode::Solid]++;
+    } else if (auto server = paint->isPaintserver() ? paint->href->getObject() : nullptr) {
         if (is<SPGradient>(server) && cast<SPGradient>(server)->getVector()->isSwatch()) {
-            // swatch color
-            auto vector = cast<SPGradient>(server)->getVector();
-            _swatch.select_vector(vector);
-        }
-        else if (is<SPLinearGradient>(server) || is<SPRadialGradient>(server)) {
-            // normal gradient
-            auto gradient = cast<SPGradient>(server);
-            auto vector = gradient->getVector();
-            _gradient.setMode(is<SPLinearGradient>(gradient) ? GradientSelector::MODE_LINEAR : GradientSelector::MODE_RADIAL);
-            _gradient.setGradient(gradient);
-            _gradient.setVector(vector ? vector->document : nullptr, vector);
-            auto stop = cast<SPStop>(const_cast<SPIPaint&>(paint).getTag());
-            _gradient.selectStop(stop);
-            if (vector) {
-                _gradient.setUnits(vector->getUnits());
-                _gradient.setSpread(vector->getSpread());
-            }
+            _swatch.select_vector(cast<SPGradient>(server)->getVector());
+            _selected_modes[PaintMode::Swatch]++;
+        } else if (is<SPLinearGradient>(server) || is<SPRadialGradient>(server)) {
+            _gradient.set_selected(cast<SPGradient>(server), cast<SPStop>(paint->getTag()));
+            _selected_modes[PaintMode::Gradient]++;
         }
 #ifdef WITH_MESH
         else if (is<SPMeshGradient>(server)) {
-            // mesh
-            auto array = cast<SPGradient>(server)->getArray();
-            _mesh.select_mesh(array);
+            _mesh.select_mesh(cast<SPGradient>(server)->getArray());
+            _selected_modes[PaintMode::Mesh]++;
         }
 #endif
         else if (is<SPPattern>(server)) {
-            // pattern
             _pattern.set_selected(cast<SPPattern>(server));
+            _selected_modes[PaintMode::Pattern]++;
         }
         else if (is<SPHatch>(server)) {
-            // hatch
             _pattern.set_selected(cast<SPHatch>(server));
+            _selected_modes[PaintMode::Hatch]++;
         }
     }
-    else if (auto inherited = get_inherited_paint_mode(paint)) {
+    else if (auto inherited = get_inherited_paint_mode(*paint)) {
         _inherited.set_mode(*inherited);
+        _selected_modes[PaintMode::Derived]++;
     }
 }
 
-void PaintSwitchImpl::set_fill_rule(FillRule fill_rule) {
+void PaintSwitchImpl::show_best_mode()
+{
+    if (_selected_modes.size() == 0) {
+        show_placeholder(_("Nothing selected"), false);
+    } else if (_selected_modes.size() == 1) {
+        for (auto &[mode, count] : _selected_modes) {
+            if (mode == PaintMode::None) {
+                show_placeholder(_("No paint"), false);
+            } else if (mode == PaintMode::Solid || count == 1) {
+                // Solid color is the only mode that allows selected styles of the same time
+                _set_mode(mode);
+            } else {
+                // We could be more specific here as we know there are multiple 'gradients'
+                // but not multiple /types/ of this one style.
+                show_placeholder(_("Multiple styles"), true);
+            }
+        }
+    } else if (_selected_modes.size() > 1) {
+        show_placeholder(_("Multiple styles"), true);
+    }
+
+}
+
+void PaintSwitchImpl::set_fill_rule(FillRule fill_rule)
+{
     _fill_rule = fill_rule;
     _fill_rule_btn.set_icon_name(fill_rule == FillRule::NonZero ? "fill-rule-nonzero" : "fill-rule-even-odd");
 }

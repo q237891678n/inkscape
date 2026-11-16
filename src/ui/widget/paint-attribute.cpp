@@ -488,9 +488,6 @@ std::vector<sigc::connection> PaintAttribute::PaintStrip::connect_signals() {
             sp_repr_css_unset_property(css.get(), fill ? "fill" : "stroke");
             set_item_style(cast<SPItem>(_current_item), css.get());
             DocumentUndo::done(_current_item->document,  fill ? RC_("Undo", "Unset fill") : RC_("Undo", "Unset stroke"), "dialog-fill-and-stroke", tag);
-            if (auto paint = _current_item->style->getFillOrStroke(fill)) {
-                _switch->update_from_paint(*paint);
-            }
             update_preview_indicators(_current_item);
         }
     }));
@@ -620,15 +617,10 @@ void PaintAttribute::PaintStrip::set_paint(const SPObject* object) {
 void PaintAttribute::PaintStrip::set_paint(const SPIPaint& paint, double opacity, FillRule fill_rule) {
     auto scoped(_update->block());
 
-    auto mode = get_mode_from_paint(paint);
-    _switch->set_mode(mode);
-    if (paint.isColor()) {
-        auto color = paint.getColor();
-        color.setOpacity(opacity);
-        _switch->set_color(color);
-    }
-    _switch->update_from_paint(paint);
+    _switch->clear_paints();
+    _switch->add_paint("", &paint, opacity);
     _switch->set_fill_rule(fill_rule);
+    _switch->show_best_mode();
 }
 
 void PaintAttribute::insert_widgets(InkPropertyGrid& grid) {

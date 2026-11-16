@@ -370,60 +370,21 @@ void FillAndStroke::_updateFromSelection()
     auto update_channel = [&](UI::Widget::PaintSwitch* pswitch, bool is_fill) {
         if (!pswitch) return;
 
-        SPStyle query(getDesktop()->getDocument());
-        int property = is_fill ? QUERY_STYLE_PROPERTY_FILL : QUERY_STYLE_PROPERTY_STROKE;
-        int result = sp_desktop_query_style(getDesktop(), &query, property);
+        pswitch->clear_paints();
 
-        if (result == QUERY_STYLE_MULTIPLE_DIFFERENT) {
-            pswitch->show_placeholder(_("Multiple styles"), true);
-            return;
-        }
-
-        UI::Widget::PaintMode mode = UI::Widget::PaintMode::None;
-        Inkscape::Colors::Color color(0x000000ff);
-        double opacity = 1.0;
-        const SPIPaint* paint_ptr = nullptr;
-        bool color_found = false;
-
-        if (anchor && anchor->style) {
-            paint_ptr = anchor->style->getFillOrStroke(is_fill);
-            opacity = is_fill ? (double)anchor->style->fill_opacity : (double)anchor->style->stroke_opacity;
-            
-            if (paint_ptr) {
-                mode = Inkscape::UI::Widget::get_mode_from_paint(*paint_ptr);
-
-                if (paint_ptr->isColor()) {
-                    color = paint_ptr->getColor();
-                    color_found = true;
+        for (auto item : items) {
+            if (auto style = item->style) {
+                if (is_fill) {
+                    using Rule = Inkscape::UI::Widget::FillRule;
+                    pswitch->set_fill_rule(style->fill_rule.computed == SP_WIND_RULE_NONZERO ? Rule::NonZero : Rule::EvenOdd);
+                    pswitch->add_paint(item->getId(), style->fill.upcast(), (double)style->fill_opacity);
+                } else {
+                    pswitch->add_paint(item->getId(), style->stroke.upcast(), (double)style->stroke_opacity);
                 }
             }
         }
 
-        if (!color_found) {
-            if (auto from_desktop = sp_desktop_get_color(getDesktop(), is_fill)) {
-                color = *from_desktop;
-                if (!paint_ptr || !paint_ptr->set) {
-                    mode = UI::Widget::PaintMode::Solid;
-                }
-            }
-        }
-
-        pswitch->set_mode(mode);
-        color.setOpacity(opacity);
-
-        if(mode == UI::Widget::PaintMode::Solid) {
-            pswitch->set_color(color);
-        } else if(mode == UI::Widget::PaintMode::None) {
-            pswitch->show_placeholder("No Paint", false);
-        }
-        if (paint_ptr) {
-            pswitch->update_from_paint(*paint_ptr);
-        }
-
-        if (is_fill && anchor && anchor->style) {
-             using Rule = Inkscape::UI::Widget::FillRule;
-             pswitch->set_fill_rule(anchor->style->fill_rule.computed == SP_WIND_RULE_NONZERO ? Rule::NonZero : Rule::EvenOdd);
-        }
+        pswitch->show_best_mode();
     };
 
     update_channel(_fill_switch.get(), true);

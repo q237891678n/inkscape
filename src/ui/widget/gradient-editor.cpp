@@ -28,14 +28,12 @@
 #include "ui/builder-utils.h"
 #include "ui/icon-names.h"
 #include "ui/util.h"
-#include "ui/widget/color-notebook.h"
 #include "ui/widget/generic/spin-button.h"
 #include "ui/widget/generic/popover-menu.h"
 
 namespace Inkscape::UI::Widget {
 
 using namespace Inkscape::IO;
-using Inkscape::UI::Widget::ColorNotebook;
 
 const std::array<std::tuple<SPGradientSpread, const char*, const char*>, 3>& sp_get_spread_repeats() {
     static auto const repeats = std::to_array({std::tuple
@@ -165,6 +163,21 @@ GradientEditor::GradientEditor(const char* prefs, Space::Type space, bool show_t
     _color_picker->get_last_column_size()->add_widget(get_widget<Gtk::MenuButton>(_builder, "repeat-mode"));
 
     append(_main_box);
+}
+
+void GradientEditor::set_selected(SPGradient *gradient, SPStop *stop)
+{
+    if (gradient) {
+        auto vector = gradient->getVector();
+        setMode(is<SPLinearGradient>(gradient) ? GradientSelector::MODE_LINEAR : GradientSelector::MODE_RADIAL);
+        setGradient(gradient);
+        setVector(vector ? vector->document : nullptr, vector);
+        selectStop(stop);
+        if (vector) {
+            setUnits(vector->getUnits());
+            setSpread(vector->getSpread());
+        }
+    }
 }
 
 void GradientEditor::set_stop_color(Inkscape::Colors::Color const &color)
@@ -412,9 +425,15 @@ SPGradient* GradientEditor::getVector() {
     return _selector->getVector();
 }
 
+void GradientEditor::set_desktop(SPDesktop *desktop)
+{
+    _color_picker->set_desktop(desktop);
+}
+
 void GradientEditor::setVector(SPDocument* doc, SPGradient* vector) {
     auto scoped(_update.block());
     _selector->setVector(doc, vector);
+    _color_picker->set_document(doc);
 }
 
 void GradientEditor::setMode(SelectorMode mode) {
