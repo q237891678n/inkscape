@@ -25,7 +25,8 @@ namespace Trace {
 GrayMap grayMapGaussian(GrayMap const &gmap);
 
 /**
- * Apply gaussian blur to an RgbMap.
+ * Edge-preserving smoothing of an RGB map: a 5x5 Gaussian over the neighbors
+ * whose color is close to the pixel's own, so edges stay sharp.
  */
 RgbMap rgbMapGaussian(RgbMap const &rgbmap);
 

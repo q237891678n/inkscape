@@ -26,6 +26,7 @@
 #include "trace/imagemap.h"
 using potrace_param_t = struct potrace_param_s;
 using potrace_path_t  = struct potrace_path_s;
+using potrace_bitmap_t = struct potrace_bitmap_s;
 
 namespace Inkscape {
 namespace Trace {
@@ -106,6 +107,7 @@ private:
     std::optional<GrayMap> filter(Glib::RefPtr<Gdk::Pixbuf> const &pixbuf) const;
 
     Geom::PathVector grayMapToPath(GrayMap const &gm, Async::Progress<double> &progress);
+    Geom::PathVector bitmapToPath(potrace_bitmap_t *bitmap, Async::Progress<double> &progress);
 
     void writePaths(potrace_path_t *paths, Geom::PathBuilder &builder, std::unordered_set<Geom::Point> &points, Async::Progress<double> &progress) const;
 };

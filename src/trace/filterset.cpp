@@ -10,9 +10,14 @@
  *
  * Released under GNU GPL v2+, read the file 'COPYING' for more information.
  */
-#include <cstdio>
-#include "imagemap-gdk.h"
 #include "filterset.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib> // std::abs
+#include <vector>
+
+#include "imagemap-gdk.h"
 #include "quantize.h"
 
 namespace Inkscape {
@@ -72,42 +77,49 @@ RgbMap rgbMapGaussian(RgbMap const &me)
 {
     int width  = me.width;
     int height = me.height;
-    int firstX = 2;
-    int lastX  = width-3;
-    int firstY = 2;
-    int lastY  = height-3;
 
-    auto newGm = RgbMap(width, height);
+    // Pixels within 2 of the border are copied as they are.
+    auto newGm = me;
+    if (width < 5 || height < 5) {
+        return newGm;
+    }
 
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            // image boundaries
-            if (x < firstX || x > lastX || y < firstY || y > lastY) {
-                newGm.setPixel(x, y, me.getPixel(x, y));
-                continue;
-            }
-
-            // all other pixels
-            int gaussIndex = 0;
-            int sumR       = 0;
-            int sumG       = 0;
-            int sumB       = 0;
-            for (int i = y - 2; i <= y + 2; i++) {
-                for (int j = x - 2; j <= x + 2; j++) {
-                    int weight = gaussMatrix[gaussIndex++];
-                    RGB rgb = me.getPixel(j, i);
-                    sumR += weight * rgb.r;
-                    sumG += weight * rgb.g;
-                    sumB += weight * rgb.b;
+    // The 5x5 matrix above, applied only to the neighbors whose color is close
+    // to the pixel's own (within <edge> levels on every channel), each pixel's sum
+    // divided by the weights it used. Noise, JPEG artifacts and texture are
+    // smoothed as before, but colors on two sides of an edge are no longer mixed:
+    // a plain blur widened every edge into a band of in-between colors, traced
+    // as soft rings of other colors around every shape and letter.
+    constexpr int edge = 120;
+    static_assert(sizeof(RGB) == 3);
+    for (int y = 2; y < height - 2; y++) {
+        unsigned char const *rows[5];
+        for (int i = 0; i < 5; i++) {
+            rows[i] = reinterpret_cast<unsigned char const *>(me.row(y - 2 + i));
+        }
+        auto dst = reinterpret_cast<unsigned char *>(newGm.row(y));
+        for (int x = 2; x < width - 2; x++) {
+            auto c = rows[2] + 3 * x;
+            int sr = 0, sg = 0, sb = 0, sw = 0;
+            for (int i = 0; i < 5; i++) {
+                auto p = rows[i] + 3 * (x - 2);
+                int const *w = gaussMatrix + 5 * i;
+                for (int j = 0; j < 5; j++, p += 3) {
+                    if (std::abs(p[0] - c[0]) <= edge && std::abs(p[1] - c[1]) <= edge &&
+                        std::abs(p[2] - c[2]) <= edge) {
+                        sr += w[j] * p[0];
+                        sg += w[j] * p[1];
+                        sb += w[j] * p[2];
+                        sw += w[j];
+                    }
                 }
-	        }
-            RGB rout;
-            rout.r = (sumR / 159) & 0xff;
-            rout.g = (sumG / 159) & 0xff;
-            rout.b = (sumB / 159) & 0xff;
-            newGm.setPixel(x, y, rout);
-	    }
-	}
+            }
+            // sw >= 15: the pixel itself always counts.
+            dst[3 * x] = (sr + sw / 2) / sw;
+            dst[3 * x + 1] = (sg + sw / 2) / sw;
+            dst[3 * x + 2] = (sb + sw / 2) / sw;
+        }
+    }
 
     return newGm;
 }

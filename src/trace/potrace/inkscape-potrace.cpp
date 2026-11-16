@@ -196,11 +196,16 @@ IndexedMap PotraceTracingEngine::filterIndexed(Glib::RefPtr<Gdk::Pixbuf> const &
 {
     auto map = gdkPixbufToRgbMap(pixbuf);
 
-    if (multiScanSmooth) {
-        map = rgbMapGaussian(map);
-    }
+    auto smoothed = multiScanSmooth ? rgbMapGaussian(map) : map;
+    auto imap = rgbMapQuantize(smoothed, multiScanNrColors);
 
-    auto imap = rgbMapQuantize(map, multiScanNrColors);
+    // Anti-aliased edges, judged on the image as quantized: smoothing keeps edges
+    // sharp, and judging on the unsmoothed one brought back the noise it removed.
+    dropBlendColors(smoothed, imap);
+    snapBlendedEdges(smoothed, imap);
+
+    // Exact colors, from the insides of the shapes in the original.
+    refinePalette(map, imap);
 
     auto tomono = [] (RGB c) -> RGB {
         unsigned char s = ((int)c.r + (int)c.g + (int)c.b) / 3;
@@ -257,6 +262,16 @@ Geom::PathVector PotraceTracingEngine::grayMapToPath(GrayMap const &grayMap, Asy
         }
     }
 
+    return bitmapToPath(potraceBitmap.release(), progress);
+}
+
+/**
+ * Trace a Potrace bitmap (set bits are traced) and free it.
+ */
+Geom::PathVector PotraceTracingEngine::bitmapToPath(potrace_bitmap_t *bitmap, Async::Progress<double> &progress)
+{
+    auto potraceBitmap = potrace_bitmap_uniqptr(bitmap);
+
     progress.throw_if_cancelled();
 
     //##Debug
@@ -277,6 +292,10 @@ Geom::PathVector PotraceTracingEngine::grayMapToPath(GrayMap const &grayMap, Asy
     potraceBitmap.reset();
 
     progress.throw_if_cancelled();
+
+    if (!potraceState || potraceState->status != POTRACE_STATUS_OK) {
+        return {};
+    }
 
     // Extract the paths into a pathvector and return it.
     Geom::PathBuilder builder;
@@ -379,36 +398,36 @@ TraceResult PotraceTracingEngine::traceQuant(Glib::RefPtr<Gdk::Pixbuf> const &pi
 {
     auto imap = filterIndexed(pixbuf);
 
-    // Create and clear a gray map
-    auto gm = GrayMap(imap.width, imap.height);
-    for (int row = 0; row < gm.height; row++) {
-        for (int col = 0; col < gm.width; col++) {
-            gm.setPixel(col, row, GrayMap::WHITE);
-        }
-    }
-
     TraceResult results;
 
     for (int colorIndex = 0; colorIndex < imap.nrColors; colorIndex++) {
         auto subprogress = Async::SubProgress(progress, (double)colorIndex / imap.nrColors, 1.0 / imap.nrColors);
 
-        // Update the graymap for the current color index
+        // Make the Potrace bitmap of the current color index straight from the
+        // indexed map: the pixels of this color, and when stacking, those of
+        // every color before it too. (Going through a GrayMap first cost a
+        // second full-size image of 8 bytes a pixel and a slow copy.)
+        auto bitmap = bm_new(imap.width, imap.height);
+        if (!bitmap) {
+            break;
+        }
+        bm_clear(bitmap, 0);
         for (int row = 0; row < imap.height; row++) {
+            auto line = bm_scanline(bitmap, row);
+            auto src = imap.row(row);
             for (int col = 0; col < imap.width; col++) {
-                int index = imap.getPixel(col, row);
-                if (index == colorIndex) {
-                    gm.setPixel(col, row, GrayMap::BLACK);
-                } else if (!multiScanStack) {
-                    gm.setPixel(col, row, GrayMap::WHITE);
+                int index = src[col];
+                if (multiScanStack ? index <= colorIndex : index == colorIndex) {
+                    line[col / BM_WORDBITS] |= bm_mask(col);
                 }
             }
         }
 
         subprogress.report_or_throw(0.2);
 
-        // Now we have a traceable graymap
+        // Now we have a traceable bitmap
         auto sub_gmtopath = Async::SubProgress(subprogress, 0.2, 0.8);
-        auto pv = grayMapToPath(gm, sub_gmtopath);
+        auto pv = bitmapToPath(bitmap, sub_gmtopath);
 
         if (!pv.empty()) {
             // get style info

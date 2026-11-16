@@ -26,10 +26,12 @@ GrayMap gdkPixbufToGrayMap(Glib::RefPtr<Gdk::Pixbuf> const &buf)
     for (int y = 0; y < height; y++) {
         auto p = data + rowstride * y;
         for (int x = 0; x < width; x++) {
+            // Composite over white. Dividing by 256 instead of 255 used to darken
+            // every pixel, so white came out as 254 and no color was exact.
             int alpha = nchannels == 3 ? 255 : p[3];
             int white = 3 * (255 - alpha);
             unsigned long sample = (int)p[0] + (int)p[1] + (int)p[2];
-            unsigned long bright = sample * alpha / 256 + white;
+            unsigned long bright = (sample * alpha + 127) / 255 + white;
             map.setPixel(x, y, bright);
             p += nchannels;
         }
@@ -71,11 +73,12 @@ RgbMap gdkPixbufToRgbMap(Glib::RefPtr<Gdk::Pixbuf> const &buf)
     for (int y = 0; y < height; y++) {
         auto p = data + rowstride * y;
         for (int x = 0; x < width; x++) {
+            // Composite over white (dividing by 255, not 256: see gdkPixbufToGrayMap).
             int alpha = nchannels == 3 ? 255 : p[3];
             int white = 255 - alpha;
-            unsigned char r = (int)p[0] * alpha / 256 + white;
-            unsigned char g = (int)p[1] * alpha / 256 + white;
-            unsigned char b = (int)p[2] * alpha / 256 + white;
+            unsigned char r = ((int)p[0] * alpha + 127) / 255 + white;
+            unsigned char g = ((int)p[1] * alpha + 127) / 255 + white;
+            unsigned char b = ((int)p[2] * alpha + 127) / 255 + white;
             map.setPixel(x, y, {r, g, b});
             p += nchannels;
         }
