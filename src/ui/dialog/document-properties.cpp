@@ -26,6 +26,7 @@
 #include <gtkmm/dialog.h>
 #include <gtkmm/liststore.h>
 #include <gtkmm/spinbutton.h>
+#include <gtkmm/eventcontrollerkey.h>
 
 #include "colors/cms/profile.h"
 #include "colors/document-cms.h"
@@ -696,7 +697,8 @@ struct static_caster { To * operator () (From * value) const { return static_cas
 
 void DocumentProperties::populate_linked_profiles_box()
 {
-    _LinkedProfilesListStore->clear();
+    _LinkedProfileModel->remove_all();
+    std::vector<Glib::RefPtr<LinkedProfileItem>> items;
     if (auto document = getDocument()) {
         std::vector<SPObject *> current = document->getResourceList( "iccprofile" );
 
@@ -707,31 +709,30 @@ void DocumentProperties::populate_linked_profiles_box()
                        static_caster<SPObject, Inkscape::ColorProfile>());
 
         for (auto const &profile: _current) {
-            Gtk::TreeModel::Row row = *(_LinkedProfilesListStore->append());
-            row[_LinkedProfilesListColumns.nameColumn] = profile->getName();
+            auto name = profile->getName();
+            auto data_source = get_data_source(profile);
+            items.push_back(LinkedProfileItem::create(name,data_source));
         }
+        _LinkedProfileModel->splice(0,0,items);
     }
 }
 
-void DocumentProperties::onColorProfileSelectRow()
-{
-    Glib::RefPtr<Gtk::TreeSelection> sel = _LinkedProfilesList.get_selection();
-    if (sel) {
-        _unlink_btn.set_sensitive(sel->count_selected_rows () > 0);
+Glib::ustring DocumentProperties::get_data_source(Inkscape::ColorProfile *const &profile) {
+
+    if (!profile->getLocalProfileId().empty())
+        return _("System ID");
+    
+    if (auto uri = profile->getUri()) {
+    auto scheme = uri->getScheme();
+    if (scheme && g_ascii_strcasecmp(scheme, "data") == 0)
+        return _("Embedded");
+    return _("File");
     }
+    return {};
 }
 
-void DocumentProperties::removeSelectedProfile(){
-    Glib::ustring name;
-    if(_LinkedProfilesList.get_selection()) {
-        Gtk::TreeModel::iterator i = _LinkedProfilesList.get_selection()->get_selected();
-
-        if(i){
-            name = (*i)[_LinkedProfilesListColumns.nameColumn];
-        } else {
-            return;
-        }
-    }
+// change to remove from linked profiles , every linked has its own remove button
+void DocumentProperties::removeSelectedProfile(Glib::ustring const &name){ 
     if (auto document = getDocument()) {
         if (auto colorprofile = document->getDocumentCMS().getColorProfileForSpace(name)) {
             colorprofile->deleteObject(true, false);
@@ -740,7 +741,6 @@ void DocumentProperties::removeSelectedProfile(){
     }
 
     populate_linked_profiles_box();
-    onColorProfileSelectRow();
 }
 
 bool DocumentProperties::_AvailableProfilesList_separator(Glib::RefPtr<Gtk::TreeModel> const &model,
@@ -753,27 +753,14 @@ bool DocumentProperties::_AvailableProfilesList_separator(Glib::RefPtr<Gtk::Tree
 void DocumentProperties::build_cms()
 {
     Gtk::Label *label_link= Gtk::make_managed<Gtk::Label>("", Gtk::Align::START);
-    label_link->set_markup (_("<b>Linked Color Profiles:</b>"));
+    label_link->set_markup (_("<b>Color Profiles:</b>"));
     auto const label_avail = Gtk::make_managed<Gtk::Label>("", Gtk::Align::START);
     label_avail->set_markup (_("<b>Available Color Profiles:</b>"));
 
-    _unlink_btn.set_tooltip_text(_("Unlink Profile"));
-    docprops_style_button(_unlink_btn, INKSCAPE_ICON("list-remove"));
+    _link_btn.set_tooltip_text(_("Link Profile"));
+    docprops_style_button(_link_btn, INKSCAPE_ICON("list-add"));
 
     int row = 0;
-
-    label_link->set_hexpand();
-    label_link->set_halign(Gtk::Align::START);
-    label_link->set_valign(Gtk::Align::CENTER);
-    _page_cms->table().attach(*label_link, 0, row, 3, 1);
-
-    row++;
-
-    _LinkedProfilesListScroller.set_hexpand();
-    _LinkedProfilesListScroller.set_valign(Gtk::Align::CENTER);
-    _page_cms->table().attach(_LinkedProfilesListScroller, 0, row, 3, 1);
-
-    row++;
 
     auto const spacer = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL);
     spacer->set_size_request(SPACE_SIZE_X, SPACE_SIZE_Y);
@@ -795,37 +782,172 @@ void DocumentProperties::build_cms()
     _AvailableProfilesList.set_valign(Gtk::Align::CENTER);
     _page_cms->table().attach(_AvailableProfilesList, 0, row, 1, 1);
 
-    _unlink_btn.set_halign(Gtk::Align::CENTER);
-    _unlink_btn.set_valign(Gtk::Align::CENTER);
-    _page_cms->table().attach(_unlink_btn, 2, row, 1, 1);
+    _link_btn.set_halign(Gtk::Align::CENTER);
+    _link_btn.set_valign(Gtk::Align::CENTER);
+    _page_cms->table().attach(_link_btn, 2, row, 1, 1);
 
     // Set up the Available Profiles combo box
     _AvailableProfilesListStore = Gtk::ListStore::create(_AvailableProfilesListColumns);
     _AvailableProfilesList.set_model(_AvailableProfilesListStore);
     _AvailableProfilesList.pack_start(_AvailableProfilesListColumns.nameColumn);
     _AvailableProfilesList.set_row_separator_func(sigc::mem_fun(*this, &DocumentProperties::_AvailableProfilesList_separator));
-    _AvailableProfilesList.signal_changed().connect( sigc::mem_fun(*this, &DocumentProperties::linkSelectedProfile) );
+    
+    //# Set up the Linked Profiles grid
 
-    //# Set up the Linked Profiles combo box
-    _LinkedProfilesListStore = Gtk::ListStore::create(_LinkedProfilesListColumns);
-    _LinkedProfilesList.set_model(_LinkedProfilesListStore);
-    _LinkedProfilesList.append_column(_("Profile Name"), _LinkedProfilesListColumns.nameColumn);
-//    _LinkedProfilesList.append_column(_("Color Preview"), _LinkedProfilesListColumns.previewColumn);
-    _LinkedProfilesList.set_headers_visible(false);
-// TODO restore?    _LinkedProfilesList.set_fixed_height_mode(true);
+    row++;
+    auto const label_reset_box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL);
+    
+    _ResetDefault.set_tooltip_text(_("Reset to Original Color Profile"));
+    docprops_style_button(_ResetDefault, INKSCAPE_ICON("reset-settings"));
+    _ResetDefault.signal_clicked().connect([this](){
+        for (auto i =0; i< _LinkedProfileModel->get_n_items();i++){
+            auto item = _LinkedProfileModel->get_item(i);
+            if(!item){ 
+                continue;
+            }
+            auto LPitem = std::dynamic_pointer_cast<LinkedProfileItem>(item);
+            if(!LPitem) {
+                continue;
+            }
+            if(LPitem->is_default){
+                LPitem->is_default = false;
+                auto new_item = LinkedProfileItem::create(LPitem->name,LPitem->data_source,LPitem->is_default);
+                //TODO : unlink this from file as being default and reset back to the original color profile 
+                _LinkedProfileModel->splice(i,1,{new_item});
+                break;
+            }
+        }
+    });
+
+    label_link->set_hexpand();
+    label_link->set_halign(Gtk::Align::START);
+    label_link->set_valign(Gtk::Align::CENTER);
+
+    label_reset_box->append(*label_link);
+    label_reset_box->append(_ResetDefault);
+
+    _page_cms->table().attach(*label_reset_box, 0, row, 3, 1);
+
+    row++;
+
+    _LinkedProfileListView  = Gtk::make_managed<Gtk::ListView>();
+    _LinkedProfileListView->set_hexpand(true);
+    _LinkedProfileListView->set_valign(Gtk::Align::CENTER);
+    _page_cms->table().attach(*_LinkedProfileListView, 0, row, 3, 1);
+
+    _LinkedProfileModel = Gio::ListStore<LinkedProfileItem>::create();
+    _LinkedSelectionModel = Gtk::SingleSelection::create(_LinkedProfileModel);
+    _LinkedProfileFactory = Gtk::SignalListItemFactory::create();
+
+    _LinkedProfileFactory->signal_setup().connect([this](Glib::RefPtr<Gtk::ListItem> const &list_item) {
+        auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL,12);
+        box->set_hexpand();
+        box->add_css_class("profile-row");
+
+        auto name_label = Gtk::make_managed<Gtk::Label>();
+        name_label->set_hexpand();
+        name_label->set_margin_start(8);
+        name_label->set_xalign(0);
+        name_label->set_ellipsize(Pango::EllipsizeMode::END);
+        
+        // auto data_label = Gtk::make_managed<Gtk::Label>();
+        auto is_default_button = Gtk::make_managed<Gtk::ToggleButton>();
+        is_default_button->set_group(this->_DefaultGroup);
+        is_default_button->set_label("Set Default");
+        auto remove_btn = Gtk::make_managed<Gtk::Button>();
+        remove_btn->set_tooltip_text(_("Unlink Profile"));
+        docprops_style_button(*remove_btn, INKSCAPE_ICON("list-remove"));
+        box->append(*name_label);
+        // box->append(*data_label);
+        box->append(*is_default_button);
+        box->append(*remove_btn);
+        list_item->set_child(*box);
+    });
+
+    _LinkedProfileFactory->signal_bind().connect([this](Glib::RefPtr<Gtk::ListItem> const &list_item) {
+        auto item = std::dynamic_pointer_cast<LinkedProfileItem>(list_item->get_item());
+        if (!item) {
+            return;
+        }
+
+        auto box = dynamic_cast<Gtk::Box *>(list_item->get_child());
+        if (!box) {
+            return;
+        }
+
+        auto name_label = dynamic_cast<Gtk::Label *>(box->get_first_child());
+        // auto data_label = dynamic_cast<Gtk::Label *>(name_label->get_next_sibling());
+        auto is_default_button = dynamic_cast<Gtk::ToggleButton *>(name_label->get_next_sibling());
+        auto remove_btn = dynamic_cast<Gtk::Button *>(box->get_last_child());
+
+        if (name_label /*&& data_label*/ && is_default_button && remove_btn) {
+            auto name = item->name;
+            name_label->set_text(name);
+            // data_label->set_text(item->data_source);
+            is_default_button->signal_toggled().connect([this,is_default_button,item](){
+                if(!is_default_button->get_active()){
+                    item->is_default = false;
+                    is_default_button->set_label("Set Default");
+                    return;
+                }
+                is_default_button->set_label("Default");
+                item->is_default = true;
+                // TODO : set this to be default colorprofile to the file
+            });
+            remove_btn->signal_clicked().connect([this,name](){removeSelectedProfile(name);});
+        }
+    });
+
+    auto keys = Gtk::EventControllerKey::create();
+    keys->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+    keys->signal_key_pressed().connect([this](guint key ,guint, Gdk::ModifierType){
+        if (key != GDK_KEY_Left && key != GDK_KEY_Right)
+            return false;
+        
+        auto focused = _LinkedProfileListView->get_root()->get_focus();
+        if(!focused)
+            return false;
+        
+        Gtk::Widget* box = nullptr;
+        if (focused->has_css_class("profile-row"))
+            box = focused;
+        else if (auto p = focused->get_parent(); p&&p->has_css_class("profile-row"))
+            box = p;
+        else if (auto c = focused->get_first_child(); c&&c->has_css_class("profile-row"))
+            box = c;
+        
+        if (!box) return false;
+
+        std::vector<Gtk::Widget*>buttons;
+        for (auto w = box->get_first_child(); w; w = w->get_next_sibling())
+           if (w->get_focusable()) buttons.push_back(w);
+        
+        if(buttons.empty())
+            return false;
+
+        auto n = buttons.size();
+        auto it = std::find(buttons.begin(),buttons.end(),focused);
+        int index;
+        if(it == buttons.end())
+            index = (key == GDK_KEY_Right)?0:n-1;
+        else {
+            index = it - buttons.begin();
+            index = (key == GDK_KEY_Right) ? (index + 1) % n : (index - 1 + n) % n;
+        }
+        buttons[index]->grab_focus();
+        return true;
+
+    },false);
+
+    _LinkedProfileListView->add_controller(keys);
+    _LinkedProfileListView->set_model(_LinkedSelectionModel);
+    _LinkedProfileListView->set_factory(_LinkedProfileFactory);
 
     populate_linked_profiles_box();
 
-    _LinkedProfilesListScroller.set_child(_LinkedProfilesList);
-    _LinkedProfilesListScroller.set_has_frame(true);
-    _LinkedProfilesListScroller.set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::ALWAYS);
-    _LinkedProfilesListScroller.set_size_request(-1, 90);
 
-    _unlink_btn.signal_clicked().connect(sigc::mem_fun(*this, &DocumentProperties::removeSelectedProfile));
+    _link_btn.signal_clicked().connect(sigc::mem_fun(*this, &DocumentProperties::linkSelectedProfile));
 
-    _LinkedProfilesList.get_selection()->signal_changed().connect( sigc::mem_fun(*this, &DocumentProperties::onColorProfileSelectRow) );
-
-    connect_remove_popup_menu(_LinkedProfilesList, _popoverbin, sigc::mem_fun(*this, &DocumentProperties::removeSelectedProfile));
 }
 
 void DocumentProperties::build_scripting()

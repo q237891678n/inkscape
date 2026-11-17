@@ -32,6 +32,9 @@
 #include <gtkmm/notebook.h>
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/textview.h>
+#include <gtkmm/listview.h>
+#include <gtkmm/signallistitemfactory.h>
+#include <gtkmm/singleselection.h>
 #include "object/sp-grid.h"
 #include "ui/dialog/dialog-base.h"
 #include "ui/widget/generic/popover-bin.h"
@@ -93,8 +96,9 @@ private:
     virtual void  on_response (int);
     void  populate_available_profiles();
     void  populate_linked_profiles_box();
+    Glib::ustring  get_data_source(Inkscape::ColorProfile *const &profile);
     void  linkSelectedProfile();
-    void  removeSelectedProfile();
+    void  removeSelectedProfile(Glib::ustring const &name);
     void  onColorProfileSelectRow();
     void  populate_script_lists();
     void  addExternalScript();
@@ -145,7 +149,7 @@ private:
     //---------------------------------------------------------------
     UI::Widget::PageProperties* _page;
     //---------------------------------------------------------------
-    Gtk::Button         _unlink_btn;
+    Gtk::Button         _link_btn;
     class AvailableProfilesColumns : public Gtk::TreeModel::ColumnRecord
         {
         public:
@@ -160,19 +164,27 @@ private:
     Gtk::ComboBox _AvailableProfilesList;
     bool _AvailableProfilesList_separator(Glib::RefPtr<Gtk::TreeModel> const &model,
                                           Gtk::TreeModel::const_iterator const &iter);
-    class LinkedProfilesColumns : public Gtk::TreeModel::ColumnRecord
-        {
-        public:
-            LinkedProfilesColumns()
-              { add(nameColumn); add(previewColumn); }
-            Gtk::TreeModelColumn<Glib::ustring> nameColumn;
-            Gtk::TreeModelColumn<Glib::ustring> previewColumn;
-        };
-    LinkedProfilesColumns _LinkedProfilesListColumns;
-    Glib::RefPtr<Gtk::ListStore> _LinkedProfilesListStore;
-    Gtk::TreeView _LinkedProfilesList;
-    Gtk::ScrolledWindow _LinkedProfilesListScroller;
-
+    struct LinkedProfileItem : public Glib::Object
+    {   
+        Glib::ustring name;
+        Glib::ustring data_source;
+        bool is_default;
+        static Glib::RefPtr<LinkedProfileItem> create(Glib::ustring name, Glib::ustring data_source, bool is_default = false){
+                auto item = Glib::make_refptr_for_instance<LinkedProfileItem>(new LinkedProfileItem());
+                item->name = name;
+                item->data_source = data_source;
+                item->is_default = is_default;
+                return item;
+        }
+    
+    };
+    Gtk::ListView* _LinkedProfileListView;
+    Glib::RefPtr<Gio::ListStore<LinkedProfileItem>> _LinkedProfileModel;
+    Glib::RefPtr<Gtk::SignalListItemFactory> _LinkedProfileFactory;
+    Glib::RefPtr<Gtk::SingleSelection> _LinkedSelectionModel;
+    Gtk::ToggleButton _DefaultGroup;
+    Gtk::Button _ResetDefault; 
+    //TODO: save the very first colorprofile before any modificaions to reset to it 
     //---------------------------------------------------------------
     Gtk::Button         _external_add_btn;
     Gtk::Button         _external_remove_btn;

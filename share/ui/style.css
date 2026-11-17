@@ -1862,3 +1862,8 @@ text-combobox .menuitem {
     margin: 0;
     border-spacing: 0;
 }
+
+.profile-row button:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: -2px;
+}
